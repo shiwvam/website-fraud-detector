@@ -195,7 +195,7 @@ export GROQ_API_KEY=gsk_your_key_here
 Built by **Shivam Prajapati**
 BCA Student @ IMS Ghaziabad | Cybersecurity Enthusiast
 
-- 🔗 [LinkedIn](https://linkedin.com/in/YOUR_PROFILE)
+- 🔗 [LinkedIn](www.linkedin.com/in/shivam-prajapati-923923312)
 - 💻 [GitHub](https://github.com/shiwvam)
 
 ---
