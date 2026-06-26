@@ -1,0 +1,249 @@
+# to check this =https://precision-hang-succeed-purple.trycloudflare.com
+"""
+Website Fraud Detector - Python CLI Tool
+Run: python urlanalyzer.py
+Requirements: pip install groq colorama
+"""
+
+import re
+import sys
+from urllib.parse import urlparse
+from colorama import init, Fore, Style
+from groq import Groq
+
+init(autoreset=True)
+
+GROQ_API_KEY = "gsk_yxMGSLEa28ieRsXdzH1HWGdyb3FYRtcFxxxxxxxxxxxxxxxxxxxxxxxxx"
+# ──────────────────────────────────────────────────────────────────────────────
+
+SUSPICIOUS_TLDS = {'xyz','top','click','online','site','info','biz','loan',
+                   'gq','ml','cf','ga','tk','pw','cc','su','vu','ws'}
+
+PHISHING_KEYWORDS = ['login','verify','secure','update','confirm','paypal',
+                     'bank','account','password','wallet','free','prize',
+                     'win','claim','lucky','signin','webscr','ebayisapi']
+
+TUNNEL_DOMAINS = ['trycloudflare.com','ngrok.io','ngrok-free.app',
+                  'localtunnel.me','glitch.me','replit.co','loca.lt']
+
+
+def banner():
+    print(Fore.CYAN + Style.BRIGHT + """
+╔══════════════════════════════════════════╗
+║      Website Fraud Detector v3.0         ║
+║       Powered by Static Checks + Groq    ║
+╚══════════════════════════════════════════╝
+""")
+
+
+def color_status(status):
+    if status == "safe":
+        return Fore.GREEN + "✔ SAFE" + Style.RESET_ALL
+    elif status == "warn":
+        return Fore.YELLOW + "⚠ WARN" + Style.RESET_ALL
+    else:
+        return Fore.RED + "✘ RISK" + Style.RESET_ALL
+
+
+def score_color(score):
+    if score >= 75:
+        return Fore.GREEN + Style.BRIGHT + str(score) + Style.RESET_ALL
+    elif score >= 45:
+        return Fore.YELLOW + Style.BRIGHT + str(score) + Style.RESET_ALL
+    else:
+        return Fore.RED + Style.BRIGHT + str(score) + Style.RESET_ALL
+
+
+def progress_bar(score, width=30):
+    filled = int(score / 100 * width)
+    bar = "█" * filled + "░" * (width - filled)
+    if score >= 75:
+        return Fore.GREEN + bar + Style.RESET_ALL
+    elif score >= 45:
+        return Fore.YELLOW + bar + Style.RESET_ALL
+    else:
+        return Fore.RED + bar + Style.RESET_ALL
+
+
+def run_checks(url, domain):
+    checks = {}
+
+    has_https = url.startswith("https://")
+    checks["HTTPS"] = {
+        "value": "Secure (HTTPS)" if has_https else "No HTTPS — unencrypted!",
+        "status": "safe" if has_https else "danger",
+        "weight": 20
+    }
+
+    tld = domain.split(".")[-1].lower()
+    is_bad_tld = tld in SUSPICIOUS_TLDS
+    checks["Domain Extension"] = {
+        "value": f".{tld} — suspicious!" if is_bad_tld else f".{tld} — normal",
+        "status": "danger" if is_bad_tld else "safe",
+        "weight": 15
+    }
+
+    is_tunnel = any(t in domain for t in TUNNEL_DOMAINS)
+    checks["Tunnel / Proxy"] = {
+        "value": "Temporary tunnel detected!" if is_tunnel else "Normal domain",
+        "status": "danger" if is_tunnel else "safe",
+        "weight": 25
+    }
+
+    found_kw = [k for k in PHISHING_KEYWORDS if k in domain.lower()]
+    checks["Phishing Keywords"] = {
+        "value": f"Found: {', '.join(found_kw)}" if found_kw else "None found",
+        "status": "danger" if found_kw else "safe",
+        "weight": 15
+    }
+
+    is_ip = bool(re.match(r'^(\d{1,3}\.){3}\d{1,3}$', domain))
+    checks["IP as Domain"] = {
+        "value": "IP used instead of domain name!" if is_ip else "Normal domain name",
+        "status": "danger" if is_ip else "safe",
+        "weight": 10
+    }
+
+    has_special = bool(re.search(r'[^\w\-\.]', domain))
+    checks["Special Characters"] = {
+        "value": "Suspicious chars in domain" if has_special else "Clean domain",
+        "status": "warn" if has_special else "safe",
+        "weight": 5
+    }
+
+    dash_count = domain.count("-")
+    checks["Excessive Dashes"] = {
+        "value": f"{dash_count} dashes — suspicious" if dash_count >= 3 else f"{dash_count} dashes — OK",
+        "status": "warn" if dash_count >= 3 else "safe",
+        "weight": 5
+    }
+
+    dlen = len(domain)
+    checks["Domain Length"] = {
+        "value": f"{dlen} chars — very long!" if dlen > 30 else f"{dlen} chars — normal",
+        "status": "warn" if dlen > 30 else "safe",
+        "weight": 5
+    }
+
+    return checks
+
+
+def compute_score(checks):
+    risk = 0
+    total = 0
+    for c in checks.values():
+        total += c["weight"]
+        if c["status"] == "danger":
+            risk += c["weight"]
+        elif c["status"] == "warn":
+            risk += c["weight"] * 0.5
+    return round((1 - risk / total) * 100)
+
+
+def ai_analysis(url, domain, checks, score):
+    flagged = [f"{k}: {v['value']}" for k, v in checks.items() if v["status"] != "safe"]
+    flags_str = ", ".join(flagged) if flagged else "None"
+
+    prompt = f"""You are a cybersecurity expert. Analyze this URL for fraud risk.
+
+URL: {url}
+Domain: {domain}
+Safety score: {score}/100
+Flags found: {flags_str}
+
+Give a 3-4 sentence verdict: Is this site suspicious? What specific risks does it pose?
+What should the user avoid doing on this site? Be direct and practical. No markdown."""
+
+    try:
+        client = Groq(api_key=GROQ_API_KEY)
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=300
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"AI analysis failed: {e}"
+
+
+def display_results(url, domain, checks, score, ai_text):
+    print("\n" + "─" * 55)
+    print(f"  URL     : {Fore.CYAN}{url}{Style.RESET_ALL}")
+    print(f"  Domain  : {domain}")
+    print("─" * 55)
+
+    verdict = "Likely Safe ✔" if score >= 75 else "Suspicious ⚠" if score >= 45 else "High Risk ✘"
+    print(f"\n  Safety Score : {score_color(score)}/100  —  {verdict}")
+    print(f"  {progress_bar(score)}\n")
+
+    print(f"  {'Check':<22} {'Result':<35} {'Status'}")
+    print("  " + "─" * 65)
+    for name, c in checks.items():
+        print(f"  {name:<22} {c['value']:<35} {color_status(c['status'])}")
+
+    print("\n" + "─" * 55)
+    print(Fore.CYAN + "  AI Analysis (Groq — Llama 3.3 70B):" + Style.RESET_ALL)
+    for line in ai_text.split(". "):
+        if line.strip():
+            print(f"  → {line.strip()}.")
+
+    print("\n" + "─" * 55)
+    if score < 75:
+        print(Fore.RED + "  ⚠  Precautions:" + Style.RESET_ALL)
+        tips = [
+            "Do NOT enter passwords, OTPs, or banking details",
+            "DENY camera and location permission requests",
+            "Do NOT download anything from this site",
+            "Verify the domain matches the official brand website",
+            "Report: https://safebrowsing.google.com/safebrowsing/report_phish/"
+        ]
+    else:
+        print(Fore.GREEN + "  ✔  Stay cautious:" + Style.RESET_ALL)
+        tips = [
+            "Always verify domain matches the expected brand",
+            "Deny unnecessary camera/location permissions",
+            "Use a password manager to avoid phishing"
+        ]
+    for t in tips:
+        print(f"     • {t}")
+    print()
+
+
+def main():
+    banner()
+
+    if len(sys.argv) > 1:
+        raw_url = sys.argv[1]
+    else:
+        raw_url = input(Fore.CYAN + "  Enter URL to analyze: " + Style.RESET_ALL).strip()
+
+    if not raw_url:
+        print(Fore.RED + "  No URL provided. Exiting." + Style.RESET_ALL)
+        sys.exit(1)
+
+    if not raw_url.startswith("http"):
+        raw_url = "https://" + raw_url
+
+    try:
+        domain = urlparse(raw_url).hostname
+    except Exception:
+        print(Fore.RED + "  Invalid URL format." + Style.RESET_ALL)
+        sys.exit(1)
+
+    print(f"\n  {Fore.YELLOW}Analyzing {domain}...{Style.RESET_ALL}\n")
+
+    checks = run_checks(raw_url, domain)
+    score = compute_score(checks)
+
+    print(f"  {Fore.YELLOW}Getting AI analysis from Groq...{Style.RESET_ALL}")
+    ai_text = ai_analysis(raw_url, domain, checks, score)
+
+    display_results(raw_url, domain, checks, score, ai_text)
+
+    again = input("  Check another URL? (y/n): ").strip().lower()
+    if again == 'y':
+        main()
+
+
+if __name__ == "__main__":
+    main()
