@@ -196,7 +196,7 @@ Built by **Shivam Prajapati**
 BCA Student @ IMS Ghaziabad | Cybersecurity Enthusiast
 
 - 🔗 [LinkedIn](https://linkedin.com/in/YOUR_PROFILE)
-- 💻 [GitHub](https://github.com/YOUR_USERNAME)
+- 💻 [GitHub](https://github.com/shiwvam)
 
 ---
 
